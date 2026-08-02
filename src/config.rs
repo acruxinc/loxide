@@ -188,16 +188,16 @@ impl Config {
     pub fn from_env() -> Self {
         let mut config = Config::default();
 
-        if let Ok(level) = env::var("LOG_LEVEL")
-            && let Ok(parsed) = level.parse()
-        {
-            config.level = parsed;
+        if let Ok(level) = env::var("LOG_LEVEL") {
+            if let Ok(parsed) = level.parse() {
+                config.level = parsed;
+            }
         }
 
-        if let Ok(format) = env::var("LOG_FORMAT")
-            && let Ok(parsed) = format.parse()
-        {
-            config.format = parsed;
+        if let Ok(format) = env::var("LOG_FORMAT") {
+            if let Ok(parsed) = format.parse() {
+                config.format = parsed;
+            }
         }
 
         if let Ok(caller) = env::var("LOG_CALLER") {
