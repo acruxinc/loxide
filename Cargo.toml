@@ -1,0 +1,30 @@
+[package]
+name = "loxide"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.97.0"
+description = "A fast, dependency-free structured logging library for Rust with pretty and JSON output, field redaction, and scoped sub-loggers."
+authors = ["Shaik Baleeghuddin Kashif (@kashifsb)"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/acruxinc/loxide"
+homepage = "https://github.com/acruxinc/loxide"
+documentation = "https://docs.rs/loxide"
+keywords = ["logging", "logger", "structured", "json", "observability"]
+categories = ["development-tools::debugging", "development-tools"]
+exclude = ["/.github", "/Makefile"]
+
+# loxide is intentionally dependency-free: it ships its own JSON value type,
+# serializer, and UTC time formatting so downstream builds stay tiny and fast.
+[dependencies]
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
+
+[lints.rust]
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
