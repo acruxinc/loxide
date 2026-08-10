@@ -1,6 +1,6 @@
 [package]
 name = "loxide"
-version = "0.0.3"
+version = "0.0.5"
 edition = "2024"
 rust-version = "1.88.0"
 description = "A fast, dependency-free structured logging library for Rust with pretty and JSON output, field redaction, and scoped sub-loggers."

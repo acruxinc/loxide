@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.3] - 2026-08-10
+## [0.0.5] - 2026-08-10
 
 ### Added
 - **UUIDv7 Trace IDs**: Added optional `uuid` feature. Exposes `logger.with_new_trace_id()` to automatically generate and attach time-ordered, uniquely sortable UUIDv7 trace IDs to log records.
