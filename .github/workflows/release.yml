@@ -76,7 +76,7 @@ jobs:
 
       - name: Build release binary
         run: |
-          cargo build --release --target ${{ matrix.target }} --example demo
+          cargo build --release --target ${{ matrix.target }} --example demo --features uuid
           mkdir -p dist
           BINARY_NAME="loxide-demo-${{ matrix.target }}"
           cp "target/${{ matrix.target }}/release/examples/demo" "dist/${BINARY_NAME}" 2>/dev/null \

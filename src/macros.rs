@@ -55,6 +55,14 @@ macro_rules! log_info {
     };
 }
 
+/// Logs at [`Level::Success`](crate::Level::Success) with caller info.
+#[macro_export]
+macro_rules! log_success {
+    ($logger:expr, $msg:expr $(, $key:expr => $val:expr)* $(,)?) => {
+        $crate::__loxide_log!($logger, $crate::Level::Success, $msg $(, $key => $val)*)
+    };
+}
+
 /// Logs at [`Level::Warn`](crate::Level::Warn) with caller info.
 #[macro_export]
 macro_rules! log_warn {

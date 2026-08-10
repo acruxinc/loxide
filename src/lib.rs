@@ -68,17 +68,24 @@ pub mod config;
 pub mod helpers;
 pub mod json;
 pub mod logger;
+pub mod redact;
 pub mod time;
 
-pub mod redact;
+/// Optional bridge to the [`log`](https://docs.rs/log) crate.
+/// Enabled with the `log` feature flag.
+#[cfg(feature = "log")]
+pub mod log_compat;
+
+/// Optional bridge to the [`tracing`](https://docs.rs/tracing) ecosystem.
+/// Enabled with the `tracing` feature flag.
+#[cfg(feature = "tracing")]
+pub mod tracing_compat;
 
 mod macros;
 mod pretty;
 
-pub use config::{Config, Format, Level, ParseFormatError, ParseLevelError};
-pub use helpers::{
-    log_db_query, log_request, log_response, log_service_debug, log_service_error, log_success,
-};
+pub use config::{Config, Format, Level, ParseFormatError, ParseLevelError, WriterKind};
+pub use helpers::{log_db_query, log_request, log_response, log_service_debug, log_service_error};
 pub use json::{JsonNumber, JsonValue};
 pub use logger::Logger;
 pub use redact::{is_sensitive_key, redact_map, redact_value};
@@ -93,5 +100,7 @@ pub use redact::{is_sensitive_key, redact_map, redact_value};
 /// ```
 pub mod prelude {
     pub use crate::{Config, Format, JsonValue, Level, Logger};
-    pub use crate::{json, log_debug, log_error, log_fatal, log_info, log_trace, log_warn};
+    pub use crate::{
+        json, log_debug, log_error, log_fatal, log_info, log_success, log_trace, log_warn,
+    };
 }

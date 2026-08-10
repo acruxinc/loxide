@@ -18,20 +18,28 @@ pub enum Level {
     Debug = 1,
     /// Normal, expected operational messages.
     Info = 2,
+    /// A successful operation or positive milestone.
+    Success = 3,
     /// Something unexpected that is not (yet) an error.
-    Warn = 3,
+    Warn = 4,
     /// A failure that needs attention.
-    Error = 4,
+    Error = 5,
     /// An unrecoverable failure.
-    Fatal = 5,
+    ///
+    /// # Note
+    /// `Fatal` is a severity hint only — loxide **does not** call
+    /// [`std::process::exit`] or panic on your behalf. It is the caller's
+    /// responsibility to terminate the process after logging a fatal event.
+    Fatal = 6,
 }
 
 impl Level {
     /// Every level, ordered from [`Level::Trace`] to [`Level::Fatal`].
-    pub const ALL: [Level; 6] = [
+    pub const ALL: [Level; 7] = [
         Level::Trace,
         Level::Debug,
         Level::Info,
+        Level::Success,
         Level::Warn,
         Level::Error,
         Level::Fatal,
@@ -43,6 +51,7 @@ impl Level {
             Level::Trace => "TRC",
             Level::Debug => "DBG",
             Level::Info => "INF",
+            Level::Success => "SUC",
             Level::Warn => "WAR",
             Level::Error => "ERR",
             Level::Fatal => "FTL",
@@ -55,6 +64,7 @@ impl Level {
             Level::Trace => "trace",
             Level::Debug => "debug",
             Level::Info => "info",
+            Level::Success => "success",
             Level::Warn => "warn",
             Level::Error => "error",
             Level::Fatal => "fatal",
@@ -90,6 +100,7 @@ impl FromStr for Level {
             "trace" => Ok(Level::Trace),
             "debug" => Ok(Level::Debug),
             "info" => Ok(Level::Info),
+            "success" => Ok(Level::Success),
             "warn" | "warning" => Ok(Level::Warn),
             "error" => Ok(Level::Error),
             "fatal" | "critical" => Ok(Level::Fatal),
@@ -134,6 +145,25 @@ impl FromStr for Format {
             _ => Err(ParseFormatError(s.to_string())),
         }
     }
+}
+
+/// Describes the kind of writer a [`Logger`](crate::logger::Logger) is
+/// writing to. Used by [`Config::resolved_format`] to correctly resolve
+/// [`Format::Auto`] without always probing `stderr`.
+///
+/// When you create a logger with `Logger::new` (→ stderr) or `Logger::stdout`
+/// (→ stdout) the kind is inferred automatically. If you supply a custom sink
+/// via `Logger::with_writer`, the format is resolved eagerly at construction
+/// time based on the actual sink you pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WriterKind {
+    /// The logger writes to standard error (the default).
+    #[default]
+    Stderr,
+    /// The logger writes to standard output.
+    Stdout,
+    /// The logger writes to an arbitrary, non-terminal sink (file, buffer, …).
+    Other,
 }
 
 /// Logger configuration.
@@ -188,16 +218,12 @@ impl Config {
     pub fn from_env() -> Self {
         let mut config = Config::default();
 
-        if let Ok(level) = env::var("LOG_LEVEL") {
-            if let Ok(parsed) = level.parse() {
-                config.level = parsed;
-            }
+        if let Some(parsed) = env::var("LOG_LEVEL").ok().and_then(|l| l.parse().ok()) {
+            config.level = parsed;
         }
 
-        if let Ok(format) = env::var("LOG_FORMAT") {
-            if let Ok(parsed) = format.parse() {
-                config.format = parsed;
-            }
+        if let Some(parsed) = env::var("LOG_FORMAT").ok().and_then(|l| l.parse().ok()) {
+            config.format = parsed;
         }
 
         if let Ok(caller) = env::var("LOG_CALLER") {
@@ -239,13 +265,37 @@ impl Config {
         self
     }
 
-    /// Resolves [`Format::Auto`] to a concrete [`Format`] based on whether
-    /// stderr is currently a terminal. [`Format::Pretty`] and [`Format::Json`]
-    /// are returned unchanged.
-    pub fn resolved_format(&self) -> Format {
+    /// Resolves [`Format::Auto`] to a concrete [`Format`] based on the kind
+    /// of writer the logger is attached to. [`Format::Pretty`] and
+    /// [`Format::Json`] are returned unchanged regardless of `writer_kind`.
+    ///
+    /// - `WriterKind::Stderr` → pretty when stderr is a terminal, else JSON.
+    /// - `WriterKind::Stdout` → pretty when stdout is a terminal, else JSON.
+    /// - `WriterKind::Other` → always JSON (files, buffers, sockets are never
+    ///   terminals).
+    ///
+    /// This avoids the previous bug where a logger writing to a file would
+    /// check whether *stderr* was a terminal and potentially emit pretty output
+    /// into a structured log file.
+    pub fn resolved_format(&self, writer_kind: WriterKind) -> Format {
         match self.format {
-            Format::Auto if std::io::stderr().is_terminal() => Format::Pretty,
-            Format::Auto => Format::Json,
+            Format::Auto => match writer_kind {
+                WriterKind::Stderr => {
+                    if std::io::stderr().is_terminal() {
+                        Format::Pretty
+                    } else {
+                        Format::Json
+                    }
+                }
+                WriterKind::Stdout => {
+                    if std::io::stdout().is_terminal() {
+                        Format::Pretty
+                    } else {
+                        Format::Json
+                    }
+                }
+                WriterKind::Other => Format::Json,
+            },
             explicit => explicit,
         }
     }
@@ -258,6 +308,8 @@ mod tests {
     #[test]
     fn level_ordering_enables_filtering() {
         assert!(Level::Trace < Level::Info);
+        assert!(Level::Info < Level::Success);
+        assert!(Level::Success < Level::Warn);
         assert!(Level::Error < Level::Fatal);
         assert!(Level::Info >= Level::Info);
     }
@@ -265,9 +317,16 @@ mod tests {
     #[test]
     fn level_parsing_and_aliases() {
         assert_eq!("info".parse(), Ok(Level::Info));
+        assert_eq!("success".parse(), Ok(Level::Success));
         assert_eq!("WARNING".parse(), Ok(Level::Warn));
         assert_eq!("Critical".parse(), Ok(Level::Fatal));
         assert!("nonsense".parse::<Level>().is_err());
+    }
+
+    #[test]
+    fn success_badge_and_str() {
+        assert_eq!(Level::Success.badge(), "SUC");
+        assert_eq!(Level::Success.as_str(), "success");
     }
 
     #[test]
@@ -293,17 +352,29 @@ mod tests {
 
     #[test]
     fn explicit_formats_resolve_to_themselves() {
+        // Explicit formats are always returned unchanged, regardless of the sink.
+        for kind in [WriterKind::Stderr, WriterKind::Stdout, WriterKind::Other] {
+            assert_eq!(
+                Config::default()
+                    .with_format(Format::Json)
+                    .resolved_format(kind),
+                Format::Json
+            );
+            assert_eq!(
+                Config::default()
+                    .with_format(Format::Pretty)
+                    .resolved_format(kind),
+                Format::Pretty
+            );
+        }
+    }
+
+    #[test]
+    fn auto_resolves_to_json_for_non_terminal_sinks() {
+        // WriterKind::Other (file, buffer, socket) is never a terminal.
         assert_eq!(
-            Config::default()
-                .with_format(Format::Json)
-                .resolved_format(),
+            Config::default().resolved_format(WriterKind::Other),
             Format::Json
-        );
-        assert_eq!(
-            Config::default()
-                .with_format(Format::Pretty)
-                .resolved_format(),
-            Format::Pretty
         );
     }
 }

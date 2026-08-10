@@ -1,11 +1,11 @@
 [package]
 name = "loxide"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 description = "A fast, dependency-free structured logging library for Rust with pretty and JSON output, field redaction, and scoped sub-loggers."
 authors = ["Shaik Baleeghuddin Kashif (@kashifsb)"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/acruxinc/loxide"
 homepage = "https://github.com/acruxinc/loxide"
@@ -16,10 +16,25 @@ exclude = ["/.github", "/Makefile"]
 
 # loxide is intentionally dependency-free: it ships its own JSON value type,
 # serializer, and UTC time formatting so downstream builds stay tiny and fast.
+[features]
+default = []
+log = ["dep:log"]
+tracing = ["dep:tracing", "dep:tracing-core", "dep:tracing-subscriber"]
+uuid = ["dep:uuid"]
+
 [dependencies]
+log = { version = "0.4", optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-core = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+uuid = { version = "1.10", features = ["v7"], optional = true }
+
+[dev-dependencies]
+uuid = { version = "1.10", features = ["v7"] }
 
 [[example]]
 name = "demo"
+required-features = ["uuid"]
 path = "examples/demo.rs"
 
 [lints.rust]

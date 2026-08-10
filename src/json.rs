@@ -222,6 +222,8 @@ impl From<bool> for JsonValue {
 }
 
 /// Generates `From<$int>` impls that widen losslessly into [`JsonNumber::Int`].
+// Note: `u64` is intentionally omitted from these implementations because it
+// cannot be losslessly converted into an `i64` without risking silent overflow.
 macro_rules! impl_from_int {
     ($($t:ty),* $(,)?) => {$(
         impl From<$t> for JsonValue {
@@ -422,9 +424,15 @@ fn parse_string(input: &[u8], pos: usize) -> Option<(String, usize)> {
                 }
                 pos += 1;
             }
-            b => {
+            b if b < 0x80 => {
                 s.push(b as char);
                 pos += 1;
+            }
+            _ => {
+                let valid_str = std::str::from_utf8(&input[pos..]).ok()?;
+                let ch = valid_str.chars().next()?;
+                s.push(ch);
+                pos += ch.len_utf8();
             }
         }
     }

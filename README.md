@@ -2,7 +2,7 @@
 
 **A fast, dependency-free structured logging library for Rust.**
 
-[![CI](https://github.com/kashifsb/loxide/actions/workflows/ci.yml/badge.svg)](https://github.com/kashifsb/loxide/actions/workflows/ci.yml)
+[![CI](https://github.com/acruxinc/loxide/actions/workflows/ci.yml/badge.svg)](https://github.com/acruxinc/loxide/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/loxide.svg)](https://crates.io/crates/loxide)
 [![Documentation](https://docs.rs/loxide/badge.svg)](https://docs.rs/loxide)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
@@ -50,7 +50,7 @@ compiles quickly and adds nothing to your dependency tree.
 
 ```toml
 [dependencies]
-loxide = "0.1"
+loxide = "0.0.3"
 ```
 
 Or from the command line:
@@ -185,8 +185,8 @@ log_db_query(&logger, "SELECT", "users", 3.0, 42);
 ```
 
 `log_response` chooses the level from the status code (`5xx` → error, `4xx` →
-warn, else info). See also `log_success`, `log_service_error`, and
-`log_service_debug`.
+warn, else info). See also `log_service_error`, `log_service_debug`, and the
+`log_success!` macro (or `Logger::success`) for positive milestones.
 
 ## Configuration
 

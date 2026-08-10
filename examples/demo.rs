@@ -3,13 +3,12 @@
 //! Run with: `cargo run --example demo`
 
 use loxide::{
-    Config, Format, Level, Logger, json, log_db_query, log_debug, log_error, log_info, log_request,
-    log_response, log_service_debug, log_service_error, log_success, log_trace, log_warn,
+    Config, Format, Level, Logger, log_debug, log_error, log_info, log_success, log_trace, log_warn,
 };
 
 fn main() {
     // A pretty, colored logger writing to stdout so the demo is easy to read.
-    let pretty = Logger::stdout(
+    let logger = Logger::stdout(
         Config::default()
             .with_level(Level::Trace)
             .with_format(Format::Pretty)
@@ -20,93 +19,50 @@ fn main() {
 
     // 1. Basic levels ------------------------------------------------------
     section("Log levels");
-    log_trace!(pretty, "TRACE — finest granularity");
-    log_debug!(pretty, "DEBUG — diagnostic detail");
-    log_info!(pretty, "INFO — normal operation");
-    log_warn!(pretty, "WARN — something looks off");
-    log_error!(pretty, "ERROR — something failed");
+    log_trace!(logger, "TRACE — finest granularity");
+    log_debug!(logger, "DEBUG — diagnostic detail");
+    log_info!(logger, "INFO — normal operation");
+    log_success!(logger, "SUCCESS — positive milestone");
+    log_warn!(logger, "WARN — something looks off");
+    log_error!(logger, "ERROR — something failed");
 
-    // 2. Structured fields -------------------------------------------------
-    section("Structured fields");
-    log_info!(pretty, "authentication successful",
-        "user" => "ada",
-        "action" => "login",
-        "ip" => "192.168.1.42",
-        "attempt" => 1,
-        "mfa" => true,
-    );
+    // 2. Request lifecycle with trace ID -----------------------------------
+    section("Request lifecycle (Trace ID)");
 
-    // 3. Error context -----------------------------------------------------
-    section("Error logging");
-    log_error!(pretty, "failed to connect to database",
-        "error" => "connection refused: dial tcp 10.0.0.5:5432",
-        "host" => "10.0.0.5",
-        "port" => 5432,
+    // We create a sub-logger that attaches `trace_id` to all subsequent logs.
+    // This allows you to track an entire request flow across components.
+    let request_logger = logger.with_new_trace_id();
+
+    // Simulate HTTP Request Start
+    log_info!(
+        request_logger,
+        "Incoming request",
+        "method" => "POST",
+        "path" => "/api/v1/todo"
     );
 
-    // 4. Sub-loggers -------------------------------------------------------
-    section("Sub-loggers (component / request scoped)");
-    let db = pretty.with_component("database");
-    db.info(
-        "connection pool initialized",
-        &[("driver", json!("pgx")), ("pool_size", json!(25))],
+    // Pass the logger down into the service layer
+    create_todo_handler(&request_logger, "Buy groceries");
+
+    log_success!(
+        request_logger,
+        "Request completed",
+        "status" => 201,
+        "duration_ms" => 42
     );
 
-    let request = pretty.with_request_id("req-7f3a-4b2c");
-    request.info(
-        "processing request",
-        &[("method", json!("POST")), ("path", json!("/v1/entries"))],
-    );
-
-    // 5. Helper functions --------------------------------------------------
-    section("Helper functions");
-    log_success(&pretty, "migration completed");
-    log_request(&pretty, "GET", "/v1/users/42", "ada");
-    log_response(&pretty, "GET", "/v1/users/42", 200, 12.0, None);
-    log_response(
-        &pretty,
-        "GET",
-        "/v1/secrets",
-        403,
-        2.0,
-        Some("insufficient permissions"),
-    );
-    log_response(
-        &pretty,
-        "POST",
-        "/v1/entries",
-        500,
-        3000.0,
-        Some("deadlock detected"),
-    );
-    log_db_query(&pretty, "SELECT", "users", 3.0, 42);
-    log_service_error(
-        &pretty,
-        "UserService",
-        "CreateUser",
-        "duplicate email",
-        &[("email", json!("user@example.com"))],
-    );
-    log_service_debug(
-        &pretty,
-        "CacheService",
-        "Get",
-        "cache lookup completed",
-        &[("key", json!("user:42:profile")), ("hit", json!(true))],
-    );
-
-    // 6. Redaction ---------------------------------------------------------
+    // 3. Demonstrating Redaction -------------------------------------------
     section("Sensitive field redaction");
-    pretty.info(
-        "login attempt",
-        &[
-            ("username", json!("ada")),
-            ("password", json!("super_secret_pass_123")),
-            ("api_key", json!("sk-proj-abc123def456")),
-        ],
+    let auth_logger = logger.with_component("auth_service");
+    log_info!(
+        auth_logger,
+        "User login attempt",
+        "username" => "admin",
+        "password" => "supersecret123", // Automatically redacted!
+        "token" => "eyJh..."            // Automatically redacted!
     );
 
-    // 7. JSON output -------------------------------------------------------
+    // 4. JSON output -------------------------------------------------------
     section("JSON output (production / aggregators)");
     let json_logger = Logger::stdout(
         Config::default()
@@ -114,18 +70,46 @@ fn main() {
             .with_format(Format::Json)
             .with_caller(true),
     );
-    log_info!(json_logger, "application started", "environment" => "production", "version" => "2.4.1");
-    log_error!(json_logger, "cache unavailable",
-        "error" => "connection timeout",
-        "service" => "redis",
-        "password" => "should-be-redacted",
+
+    // The JSON logger produces cleanly structured lines suitable for Datadog, ELK, etc.
+    let json_trace_logger = json_logger.with_new_trace_id();
+    log_success!(
+        json_trace_logger,
+        "Transaction complete",
+        "amount" => 1500,
+        "currency" => "USD"
+    );
+}
+
+// --------------------------------------------------------------------------
+// Mock Service Layers demonstrating logger passing
+// --------------------------------------------------------------------------
+
+fn create_todo_handler(logger: &Logger, task: &str) {
+    let service_logger = logger.with_component("todo_service");
+
+    log_debug!(
+        service_logger,
+        "Starting create_todo_handler",
+        "task" => task
     );
 
-    // 8. Environment-based init -------------------------------------------
-    section("Environment-based init");
-    println!("  (set LOG_LEVEL, LOG_FORMAT, LOG_CALLER, NO_COLOR, TERM to configure)");
-    let env_logger = Logger::new(Config::from_env());
-    env_logger.info("logger initialized from environment", &[]);
+    // Pass down to DB layer
+    insert_todo_db(&service_logger, task);
+}
+
+fn insert_todo_db(logger: &Logger, task: &str) {
+    let db_logger = logger.with_component("database");
+
+    log_trace!(
+        db_logger,
+        "Executing SQL INSERT",
+        "query" => "INSERT INTO todos (task) VALUES ($1)",
+        "binds" => task
+    );
+
+    // Simulate DB success
+    log_success!(db_logger, "Todo successfully inserted into database");
 }
 
 fn banner(title: &str) {

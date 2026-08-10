@@ -86,24 +86,23 @@ pub(crate) fn redact_field(key: &str, value: JsonValue) -> JsonValue {
 ///
 /// ```
 /// use std::collections::HashMap;
-/// use loxide::redact_map;
+/// use loxide::{redact_map, JsonValue};
 ///
 /// let mut headers = HashMap::new();
 /// headers.insert("authorization".to_string(), "Bearer abcdef".to_string());
 /// headers.insert("accept".to_string(), "application/json".to_string());
 ///
 /// let safe = redact_map(&headers);
-/// assert_eq!(safe["accept"], "application/json");
-/// assert_ne!(safe["authorization"], "Bearer abcdef");
+/// assert_eq!(safe["accept"], JsonValue::from("application/json"));
+/// assert_ne!(safe["authorization"], JsonValue::from("Bearer abcdef"));
 /// ```
-pub fn redact_map(map: &HashMap<String, String>) -> HashMap<String, String> {
+pub fn redact_map<V>(map: &HashMap<String, V>) -> HashMap<String, JsonValue>
+where
+    V: Into<JsonValue> + Clone,
+{
     map.iter()
         .map(|(key, value)| {
-            let value = if is_sensitive_key(key) {
-                redact_value(value)
-            } else {
-                value.clone()
-            };
+            let value = redact_field(key, value.clone().into());
             (key.clone(), value)
         })
         .collect()
@@ -173,7 +172,7 @@ mod tests {
         map.insert("username".to_string(), "john".to_string());
         map.insert("password".to_string(), "secret123".to_string());
         let result = redact_map(&map);
-        assert_eq!(result["username"], "john");
-        assert_eq!(result["password"], "s*******3");
+        assert_eq!(result["username"], json!("john"));
+        assert_eq!(result["password"], json!("s*******3"));
     }
 }

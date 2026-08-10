@@ -1,11 +1,10 @@
 //! The core [`Logger`] type.
 
-use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
-use crate::config::{Config, Format, Level};
+use crate::config::{Config, Format, Level, WriterKind};
 use crate::json::JsonValue;
 use crate::time::UtcDateTime;
 use crate::{pretty, redact};
@@ -34,30 +33,40 @@ const RESERVED_FIELDS: [&str; 4] = ["time", "level", "message", "caller"];
 #[derive(Clone)]
 pub struct Logger {
     config: Config,
-    fields: BTreeMap<String, JsonValue>,
+    fields: Vec<(String, JsonValue)>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    writer_kind: WriterKind,
 }
 
 impl Logger {
     /// Creates a logger that writes to standard error (the conventional
     /// destination for diagnostics).
     pub fn new(config: Config) -> Self {
-        Self::with_writer(config, Box::new(io::stderr()))
+        Self::with_writer_kind(config, Box::new(io::stderr()), WriterKind::Stderr)
     }
 
     /// Creates a logger that writes to standard output.
     pub fn stdout(config: Config) -> Self {
-        Self::with_writer(config, Box::new(io::stdout()))
+        Self::with_writer_kind(config, Box::new(io::stdout()), WriterKind::Stdout)
     }
 
     /// Creates a logger writing to an arbitrary sink. Useful for writing to a
     /// file, an in-memory buffer, or a socket — and for capturing output in
     /// tests.
     pub fn with_writer(config: Config, writer: Box<dyn Write + Send>) -> Self {
+        Self::with_writer_kind(config, writer, WriterKind::Other)
+    }
+
+    fn with_writer_kind(
+        config: Config,
+        writer: Box<dyn Write + Send>,
+        writer_kind: WriterKind,
+    ) -> Self {
         Logger {
             config,
-            fields: BTreeMap::new(),
+            fields: Vec::new(),
             writer: Arc::new(Mutex::new(writer)),
+            writer_kind,
         }
     }
 
@@ -107,7 +116,7 @@ impl Logger {
         let fields = self.merged_fields(extra);
         let caller = if self.config.caller { caller } else { None };
 
-        let line = match self.config.resolved_format() {
+        let line = match self.config.resolved_format(self.writer_kind) {
             Format::Pretty => self.render_pretty(level, msg, &fields, caller, &now),
             // `Auto` is resolved before we get here; anything non-pretty is JSON.
             _ => Self::render_json(level, msg, &fields, caller, &now),
@@ -121,14 +130,13 @@ impl Logger {
 
     /// Merges persistent and per-call fields (per-call wins), strips reserved
     /// names, and applies redaction once so both formats stay consistent.
-    fn merged_fields(&self, extra: &[(&str, JsonValue)]) -> BTreeMap<String, JsonValue> {
+    fn merged_fields(&self, extra: &[(&str, JsonValue)]) -> Vec<(String, JsonValue)> {
         let mut merged = self.fields.clone();
         for (key, value) in extra {
-            merged.insert((*key).to_string(), value.clone());
+            merged.retain(|(k, _)| k != *key);
+            merged.push(((*key).to_string(), value.clone()));
         }
-        for reserved in RESERVED_FIELDS {
-            merged.remove(reserved);
-        }
+        merged.retain(|(k, _)| !RESERVED_FIELDS.contains(&k.as_str()));
         merged
             .into_iter()
             .map(|(key, value)| {
@@ -142,7 +150,7 @@ impl Logger {
     fn render_json(
         level: Level,
         msg: &str,
-        fields: &BTreeMap<String, JsonValue>,
+        fields: &[(String, JsonValue)],
         caller: Option<(&str, u32)>,
         now: &UtcDateTime,
     ) -> String {
@@ -167,7 +175,7 @@ impl Logger {
         &self,
         level: Level,
         msg: &str,
-        fields: &BTreeMap<String, JsonValue>,
+        fields: &[(String, JsonValue)],
         caller: Option<(&str, u32)>,
         now: &UtcDateTime,
     ) -> String {
@@ -179,8 +187,9 @@ impl Logger {
         parts.push(msg.to_string());
 
         // Surface any `error` field prominently, before the rest.
-        let mut remaining = fields.clone();
-        if let Some(error) = remaining.remove("error") {
+        let mut remaining = fields.to_vec();
+        if let Some(idx) = remaining.iter().position(|(k, _)| k == "error") {
+            let (_, error) = remaining.remove(idx);
             parts.push(pretty::format_error_field(&scalar_text(&error), nc));
         }
         for (key, value) in &remaining {
@@ -208,10 +217,22 @@ impl Logger {
         self.with_field("request_id", JsonValue::from(id))
     }
 
-    /// Returns a sub-logger that tags every record with a `trace_id` field.
+    /// Returns a new logger with the given trace ID attached to all records.
     #[must_use]
     pub fn with_trace_id(&self, id: &str) -> Logger {
         self.with_field("trace_id", JsonValue::from(id))
+    }
+
+    /// Generates a new UUIDv7 trace ID and attaches it to the logger.
+    ///
+    /// Requires the `uuid` feature.
+    #[cfg(feature = "uuid")]
+    #[must_use]
+    pub fn with_new_trace_id(&self) -> Logger {
+        self.with_field(
+            "trace_id",
+            JsonValue::from(uuid::Uuid::now_v7().to_string()),
+        )
     }
 
     /// Returns a sub-logger carrying one additional persistent field. The new
@@ -219,11 +240,13 @@ impl Logger {
     #[must_use]
     pub fn with_field(&self, key: &str, value: JsonValue) -> Logger {
         let mut fields = self.fields.clone();
-        fields.insert(key.to_string(), value);
+        fields.retain(|(k, _)| k != key);
+        fields.push((key.to_string(), value));
         Logger {
             config: self.config.clone(),
             fields,
             writer: Arc::clone(&self.writer),
+            writer_kind: self.writer_kind,
         }
     }
 
@@ -242,6 +265,11 @@ impl Logger {
     /// Logs at [`Level::Info`].
     pub fn info(&self, msg: &str, fields: &[(&str, JsonValue)]) {
         self.log(Level::Info, msg, fields);
+    }
+
+    /// Logs at [`Level::Success`].
+    pub fn success(&self, msg: &str, fields: &[(&str, JsonValue)]) {
+        self.log(Level::Success, msg, fields);
     }
 
     /// Logs at [`Level::Warn`].
@@ -426,5 +454,66 @@ mod tests {
         let (l, buf) = logger(Level::Info, Format::Json);
         l.info("real message", &[("message", json!("spoofed"))]);
         assert_eq!(last_json(&buf)["message"], "real message");
+    }
+
+    #[test]
+    fn success_level_emits_suc_badge() {
+        let (l, buf) = logger(Level::Trace, Format::Pretty);
+        l.success("operation complete", &[]);
+        let out = text(&buf);
+        assert!(out.contains("SUC"));
+        assert!(out.contains("operation complete"));
+    }
+
+    #[test]
+    fn success_level_emits_correct_json_level() {
+        let (l, buf) = logger(Level::Trace, Format::Json);
+        l.success("all good", &[("count", json!(7))]);
+        let data = last_json(&buf);
+        assert_eq!(data["level"], "success");
+        assert_eq!(data["message"], "all good");
+        assert_eq!(data["count"], 7);
+    }
+
+    #[test]
+    fn success_is_filtered_below_warn() {
+        let (l, buf) = logger(Level::Warn, Format::Json);
+        l.success("should be dropped", &[]);
+        assert!(text(&buf).is_empty());
+    }
+
+    #[test]
+    fn trace_id_propagates_to_all_records() {
+        let (l, buf) = logger(Level::Info, Format::Json);
+        let tl = l.with_trace_id("trace-abc-123");
+        tl.info("first", &[]);
+        tl.warn("second", &[]);
+        let out = text(&buf);
+        for line in out.trim().lines() {
+            let record = from_json_str(line).unwrap();
+            assert_eq!(record["trace_id"], "trace-abc-123");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "uuid")]
+    fn with_new_trace_id_generates_unique_ids() {
+        let (base, buf1) = logger(Level::Info, Format::Json);
+        let buf2 = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let config = Config::default()
+            .with_level(Level::Info)
+            .with_format(Format::Json)
+            .with_no_color(true);
+        let base2 = Logger::with_writer(config, Box::new(SharedBuf(buf2.clone())));
+
+        base.with_new_trace_id().info("a", &[]);
+        base2.with_new_trace_id().info("b", &[]);
+
+        let id1 = last_json(&buf1)["trace_id"].as_str().unwrap().to_string();
+        let id2 = last_json(&buf2)["trace_id"].as_str().unwrap().to_string();
+
+        // Both must be non-empty and distinct.
+        assert!(!id1.is_empty(), "trace_id must be set");
+        assert_ne!(id1, id2, "each call must produce a unique UUIDv7");
     }
 }

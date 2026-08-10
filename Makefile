@@ -13,7 +13,7 @@ build:
 
 ## Run the demo example
 example:
-	cargo run --example demo
+	cargo run --example demo --features uuid
 
 ## Format the code
 fmt:

@@ -9,11 +9,6 @@ use crate::json;
 use crate::json::JsonValue;
 use crate::logger::Logger;
 
-/// Logs a success message at [`Level::Info`] with `result="success"`.
-pub fn log_success(logger: &Logger, msg: &str) {
-    logger.info(msg, &[("result", json!("success"))]);
-}
-
 /// Logs an incoming request (HTTP, gRPC, …) at [`Level::Info`].
 pub fn log_request(logger: &Logger, method: &str, path: &str, user: &str) {
     logger.info(
@@ -143,13 +138,6 @@ mod tests {
     fn last_json(buf: &Arc<Mutex<Vec<u8>>>) -> JsonValue {
         let output = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
         from_json_str(output.trim().lines().last().unwrap()).unwrap()
-    }
-
-    #[test]
-    fn success_records_result_field() {
-        let (l, buf) = test_logger();
-        log_success(&l, "done");
-        assert_eq!(last_json(&buf)["result"], "success");
     }
 
     #[test]

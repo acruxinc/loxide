@@ -36,6 +36,7 @@ pub(crate) fn format_level(level: Level, no_color: bool) -> String {
         Level::Trace => GRAY,
         Level::Debug => PURPLE,
         Level::Info => CYAN,
+        Level::Success => GREEN,
         Level::Warn => YELLOW,
         Level::Error | Level::Fatal => RED,
     };

@@ -78,18 +78,18 @@ jobs:
 
       - name: Smoke test examples
         run: |
-          cargo run --example demo
+          cargo run --example demo --features uuid
 
   msrv:
-    name: MSRV (1.85)
+    name: MSRV (1.88)
     runs-on: ubuntu-latest
     needs: validate
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust 1.85
-        uses: dtolnay/rust-toolchain@1.85.0
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4
